@@ -1,0 +1,36 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Lab</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>Virtual Lab</h1>
+    <p>Interactive Science Laboratory</p>
+  </header>
+
+  <main>
+    <section id="viewer" aria-label="3D laboratory viewer">
+      <div id="loading">Preparing your 3D laboratory...</div>
+    </section>
+
+    <section class="controls">
+      <h2>Objects</h2>
+      <button id="addSphere">Add Sphere</button>
+
+      <label for="diameter">Sphere diameter (mm)</label>
+      <input id="diameter" type="number" min="1" max="100" value="20">
+
+      <button id="updateSphere">Update Sphere Size</button>
+      <button id="resetView">Reset View</button>
+      <p id="status" role="status">Your laboratory is ready to set up.</p>
+    </section>
+  </main>
+
+  <script type="module" src="script.js"></script>
+</body>
+</html>
