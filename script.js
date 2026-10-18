@@ -3,321 +3,1218 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-/* ===== Calibration, measured from verniercaliper.glb (model units) ===== */
+/* =========================================================
+   VERNIER CALIPER CONFIGURATION
+   Retains your existing model and calibration constants.
+========================================================= */
+
 const MODEL = "./verniercaliper.glb";
-const MM = 31.27;            // 1 model unit = 31.27 mm (a real 150 mm caliper)
-const ZERO_X = -1.1227;      // x of the vernier zero line when the jaws are closed
-const FACE_X = -1.521;       // inner face of both jaws when closed
-const FACE_Z = 0.366;        // z where the fixed and moving jaw blades overlap
-const ROOT_Y = -0.17;        // just below the beam, where both jaw faces start
-const TRAVEL = 3.47;         // how far the moving jaw can slide (units)
-const MOVING = ["cube004_2", "cylinder_3"];   // slider body and thumb knob
-const HIDE = ["circle_4", "cylinder001_5"];   // stray parts (the black circle)
-const VERN = { x0: -1.192, x1: 0.537, y0: -0.166, y1: -0.0045, z: 0.469 }; // vernier window
+
+const MM = 31.27;
+const ZERO_X = -1.1227;
+const FACE_X = -1.521;
+const FACE_Z = 0.366;
+const ROOT_Y = -0.17;
+const TRAVEL = 3.47;
+
+const MOVING = ["cube004_2", "cylinder_3"];
+const HIDE = ["circle_4", "cylinder001_5"];
+
+const VERN = {
+  x0: -1.192,
+  x1: 0.537,
+  y0: -0.166,
+  y1: -0.0045,
+  z: 0.469
+};
 
 const $ = id => document.getElementById(id);
-const say = t => ($("status").textContent = t, null);
+
 const viewer = $("viewer");
 
-/* ===== Scene (pure black) ===== */
+function say(message) {
+  const status = $("status");
+  if (status) status.textContent = message;
+}
+
+/* =========================================================
+   SCENE
+========================================================= */
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x000000);
+
 const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
+  alpha: false,
+  powerPreference: "high-performance"
+});
+
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
+
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+renderer.domElement.style.display = "block";
+renderer.domElement.style.width = "100%";
+renderer.domElement.style.height = "100%";
+renderer.domElement.style.touchAction = "none";
+
 viewer.appendChild(renderer.domElement);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.8));
-[[3.2, 4, 6, 7], [2.2, -5, 3, 4], [1.8, 0, -3, -5]].forEach(([p, x, y, z]) => {
-  const l = new THREE.DirectionalLight(0xffffff, p);
-  l.position.set(x, y, z);
-  scene.add(l);
-});
+/* =========================================================
+   LIGHTING
+   Multiple lights create visible metallic highlights.
+========================================================= */
 
-const env = new THREE.PMREMGenerator(renderer).fromScene(new RoomEnvironment(), 0.04).texture;
+scene.add(
+  new THREE.HemisphereLight(
+    0xffffff,
+    0x242a32,
+    2.0
+  )
+);
+
+function addLight(color, intensity, x, y, z) {
+  const light = new THREE.DirectionalLight(color, intensity);
+
+  light.position.set(x, y, z);
+  scene.add(light);
+
+  return light;
+}
+
+addLight(0xffffff, 5.0, 3, 5, 7);
+addLight(0xdceaff, 3.5, -5, 2, 4);
+addLight(0xffffff, 4.0, 1, -3, -5);
+addLight(0xffffff, 2.5, -2, 5, -3);
+
+/* Environment reflections are essential for shiny metal. */
+
+const pmrem = new THREE.PMREMGenerator(renderer);
+
+const environmentScene = new RoomEnvironment();
+
+const environment = pmrem.fromScene(
+  environmentScene,
+  0.04
+).texture;
+
+scene.environment = environment;
+
+environmentScene.dispose();
+pmrem.dispose();
+
+/* =========================================================
+   MATERIALS
+========================================================= */
+
+/* Highly polished silver steel for the caliper. */
+
 const silver = new THREE.MeshPhysicalMaterial({
-  color: 0xf4f6f8, metalness: 1, roughness: 0.1, clearcoat: 0.6, clearcoatRoughness: 0.06,
-  envMap: env, envMapIntensity: 1.7
+  color: 0xe6eaf0,
+  metalness: 1.0,
+  roughness: 0.19,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.12,
+  envMapIntensity: 2.0
 });
 
-/* ===== Controls =====
-   Mouse: drag = move, right-drag = rotate, wheel = zoom.  Touch: pinch = zoom,
-   one finger = the view travels the way your finger moves (finger left -> view goes left). */
-const controls = new OrbitControls(camera, renderer.domElement);
+/* Reflective material for the movable parts. */
+
+const polishedSteel = new THREE.MeshPhysicalMaterial({
+  color: 0xdce2e9,
+  metalness: 1.0,
+  roughness: 0.23,
+  clearcoat: 1.0,
+  clearcoatRoughness: 0.1,
+  envMapIntensity: 1.8
+});
+
+/* Darker steel for recesses and engraved areas. */
+
+const darkSteel = new THREE.MeshStandardMaterial({
+  color: 0x454c55,
+  metalness: 0.95,
+  roughness: 0.3
+});
+
+/* Shiny materials for measurement objects. */
+
+function makeObjectMaterial(color) {
+  return new THREE.MeshPhysicalMaterial({
+    color,
+    metalness: 0.32,
+    roughness: 0.19,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.1,
+    envMapIntensity: 1.6
+  });
+}
+
+const objectMaterials = {
+  sphere: makeObjectMaterial(0x72c9ff),
+  cube: makeObjectMaterial(0xffb45c),
+  cylinder: makeObjectMaterial(0x7fe3b1),
+  cuboid: makeObjectMaterial(0xc5a0ff),
+  cone: makeObjectMaterial(0xff8585)
+};
+
+/* =========================================================
+   CAMERA CONTROLS
+========================================================= */
+
+const controls = new OrbitControls(
+  camera,
+  renderer.domElement
+);
+
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
+
+controls.enableZoom = true;
 controls.zoomToCursor = true;
 controls.screenSpacePanning = true;
-controls.minDistance = 0.3;
-controls.maxDistance = 30;
-controls.mouseButtons = { LEFT: THREE.MOUSE.PAN, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.ROTATE };
-controls.touches = { ONE: -1, TWO: THREE.TOUCH.DOLLY_PAN };
-let moved = false, fly = null;
-controls.addEventListener("start", () => (moved = true));
 
-const v3 = new THREE.Vector3(), u3 = new THREE.Vector3();
-const fingers = new Map();
-const el = renderer.domElement;
-el.addEventListener("pointerdown", e => e.pointerType === "touch" && fingers.set(e.pointerId, [e.clientX, e.clientY]));
-el.addEventListener("pointermove", e => {
-  const f = fingers.get(e.pointerId);
-  if (!f) return;
-  const dx = e.clientX - f[0], dy = e.clientY - f[1];
-  f[0] = e.clientX; f[1] = e.clientY;
-  if (fingers.size !== 1) return;
-  const d = camera.position.distanceTo(controls.target);
-  const k = (1.6 * 2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))) / viewer.clientHeight;
-  v3.setFromMatrixColumn(camera.matrix, 0).multiplyScalar(dx * k);
-  u3.setFromMatrixColumn(camera.matrix, 1).multiplyScalar(-dy * k);
-  v3.add(u3);
-  const t = controls.target, nx = THREE.MathUtils.clamp(t.x + v3.x, -W / 2, W / 2), ny = THREE.MathUtils.clamp(t.y + v3.y, -H, H);
-  camera.position.x += nx - t.x; camera.position.y += ny - t.y; camera.position.z += v3.z;
-  t.set(nx, ny, t.z + v3.z);
-  moved = true; fly = null;
-});
-["pointerup", "pointercancel"].forEach(n => el.addEventListener(n, e => fingers.delete(e.pointerId)));
+controls.minDistance = 0.15;
+controls.maxDistance = 35;
 
-/* ===== Crisp scales drawn in code (millimetres in, pixels out) ===== */
-function drawTexture(wMm, hMm, pxMm, draw) {
-  const c = document.createElement("canvas");
-  c.width = Math.round(wMm * pxMm);
-  c.height = Math.round(hMm * pxMm);
-  const g = c.getContext("2d");
-  g.scale(c.width / wMm, c.height / hMm);
-  draw(g);
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = renderer.capabilities.getMaxAnisotropy();
-  return new THREE.MeshStandardMaterial({ map: t, metalness: 0.25, roughness: 0.42, envMap: env, envMapIntensity: 0.6 });
-}
-const steel = (g, w, h, a, b, c) => {
-  const s = g.createLinearGradient(0, 0, 0, h);
-  s.addColorStop(0, a); s.addColorStop(0.5, b); s.addColorStop(1, c);
-  g.fillStyle = s; g.fillRect(0, 0, w, h);
+controls.rotateSpeed = 0.8;
+controls.panSpeed = 1.0;
+controls.zoomSpeed = 1.0;
+
+/*
+Mouse:
+Left drag   = pan
+Middle drag = zoom
+Right drag  = rotate
+Wheel       = zoom towards cursor
+
+Touch:
+One finger  = pan in the direction of the finger
+Two fingers = pinch zoom and pan
+*/
+
+controls.mouseButtons = {
+  LEFT: THREE.MOUSE.PAN,
+  MIDDLE: THREE.MOUSE.DOLLY,
+  RIGHT: THREE.MOUSE.ROTATE
 };
+
+controls.touches = {
+  ONE: THREE.TOUCH.PAN,
+  TWO: THREE.TOUCH.DOLLY_PAN
+};
+
+let moved = false;
+let fly = null;
+
+controls.addEventListener("start", () => {
+  moved = true;
+  fly = null;
+});
+
+/* =========================================================
+   UTILITIES
+========================================================= */
+
+const v3 = new THREE.Vector3();
+const u3 = new THREE.Vector3();
+
+let W = 6;
+let H = 2.5;
+
+let rig = null;
+let slider = null;
+let ready = false;
+
+let shape = null;
+let obj = null;
+
+/* =========================================================
+   HIGH-QUALITY SCALE TEXTURES
+========================================================= */
+
 const FONT = "Arial, Helvetica, sans-serif";
 
-/* Main scale: zero tick sits exactly at ZERO_X, ticks every 1 mm, numbers every cm. */
+function steelGradient(g, w, h) {
+  const gradient = g.createLinearGradient(0, 0, 0, h);
+
+  gradient.addColorStop(0, "#f5f7fa");
+  gradient.addColorStop(0.25, "#e4e8ec");
+  gradient.addColorStop(0.55, "#cbd2d9");
+  gradient.addColorStop(0.8, "#e7ebef");
+  gradient.addColorStop(1, "#aeb7c1");
+
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, w, h);
+}
+
+function drawTexture(wMm, hMm, pxMm, draw) {
+  const canvas = document.createElement("canvas");
+
+  canvas.width = Math.max(1, Math.round(wMm * pxMm));
+  canvas.height = Math.max(1, Math.round(hMm * pxMm));
+
+  const g = canvas.getContext("2d");
+
+  g.scale(
+    canvas.width / wMm,
+    canvas.height / hMm
+  );
+
+  draw(g);
+
+  const texture = new THREE.CanvasTexture(canvas);
+
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  texture.anisotropy =
+    renderer.capabilities.getMaxAnisotropy();
+
+  return new THREE.MeshPhysicalMaterial({
+    map: texture,
+    color: 0xffffff,
+    metalness: 0.85,
+    roughness: 0.23,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.15,
+    envMapIntensity: 1.2,
+    side: THREE.DoubleSide
+  });
+}
+
+/* =========================================================
+   MAIN SCALE
+========================================================= */
+
 const RULER_LEFT = ZERO_X - 0.25;
+
 function buildRuler(mesh) {
   mesh.updateWorldMatrix(true, false);
-  const mw = mesh.matrixWorld, inv = mw.clone().invert();
-  const b = new THREE.Box3().setFromObject(mesh);
-  const p = mesh.geometry.attributes.position, uv = mesh.geometry.attributes.uv;
-  for (let i = 0; i < p.count; i++) {
-    v3.fromBufferAttribute(p, i).applyMatrix4(mw);
-    v3.x = Math.max(v3.x, RULER_LEFT);
-    uv.setXY(i, (v3.x - RULER_LEFT) / (b.max.x - RULER_LEFT), (v3.y - b.min.y) / (b.max.y - b.min.y));
-    v3.applyMatrix4(inv);
-    p.setXYZ(i, v3.x, v3.y, v3.z);
+
+  const worldMatrix = mesh.matrixWorld;
+  const inverseMatrix = worldMatrix.clone().invert();
+
+  const bounds = new THREE.Box3().setFromObject(mesh);
+
+  const position = mesh.geometry.attributes.position;
+  const uv = mesh.geometry.attributes.uv;
+
+  if (!uv) {
+    console.warn("Main scale has no UV attribute.");
+    return;
   }
-  p.needsUpdate = uv.needsUpdate = true;
+
+  for (let i = 0; i < position.count; i++) {
+    v3.fromBufferAttribute(position, i);
+    v3.applyMatrix4(worldMatrix);
+
+    v3.x = Math.max(v3.x, RULER_LEFT);
+
+    uv.setXY(
+      i,
+      (v3.x - RULER_LEFT) /
+        Math.max(0.001, bounds.max.x - RULER_LEFT),
+
+      (v3.y - bounds.min.y) /
+        Math.max(0.001, bounds.max.y - bounds.min.y)
+    );
+
+    v3.applyMatrix4(inverseMatrix);
+
+    position.setXYZ(i, v3.x, v3.y, v3.z);
+  }
+
+  position.needsUpdate = true;
+  uv.needsUpdate = true;
+
   mesh.geometry.computeBoundingBox();
   mesh.geometry.computeBoundingSphere();
 
-  const w = (b.max.x - RULER_LEFT) * MM, h = (b.max.y - b.min.y) * MM, zx = (ZERO_X - RULER_LEFT) * MM;
-  mesh.material = drawTexture(w, h, Math.min(25, 4096 / w), g => {
-    steel(g, w, h, "#dde1e5", "#cdd2d7", "#b5bcc3");
-    g.fillStyle = "#0b0d0f";
-    g.textAlign = "center";
-    g.font = `600 4.2px ${FONT}`;
-    for (let mm = 0; zx + mm <= w - 0.5; mm++) {
-      const cm = mm % 10 === 0, len = cm ? 5.4 : mm % 5 === 0 ? 3.7 : 2.4, tw = cm ? 0.17 : 0.1;
-      g.fillRect(zx + mm - tw / 2, h - len, tw, len);
-      if (cm) g.fillText(String(mm / 10), zx + mm, h - 6.3);
+  const width =
+    (bounds.max.x - RULER_LEFT) * MM;
+
+  const height =
+    (bounds.max.y - bounds.min.y) * MM;
+
+  const zero =
+    (ZERO_X - RULER_LEFT) * MM;
+
+  mesh.material = drawTexture(
+    width,
+    height,
+    Math.min(30, 4096 / width),
+    g => {
+      steelGradient(g, width, height);
+
+      g.fillStyle = "#171b20";
+      g.textAlign = "center";
+      g.textBaseline = "alphabetic";
+
+      g.font = `600 4.2px ${FONT}`;
+
+      for (
+        let mm = 0;
+        zero + mm <= width - 0.5;
+        mm++
+      ) {
+        const centimetre = mm % 10 === 0;
+
+        const length = centimetre
+          ? 5.4
+          : mm % 5 === 0
+            ? 3.7
+            : 2.4;
+
+        const tickWidth = centimetre
+          ? 0.17
+          : 0.1;
+
+        g.fillRect(
+          zero + mm - tickWidth / 2,
+          height - length,
+          tickWidth,
+          length
+        );
+
+        if (centimetre) {
+          g.fillText(
+            String(mm / 10),
+            zero + mm,
+            height - 6.3
+          );
+        }
+      }
+
+      g.font = `600 3px ${FONT}`;
+
+      g.fillText("cm", 3, height - 6.3);
+
+      g.fillStyle = "#777f88";
+
+      g.fillRect(
+        0,
+        height - 0.15,
+        width,
+        0.15
+      );
     }
-    g.font = `600 3px ${FONT}`;
-    g.fillText("cm", 3, h - 6.3);
-    g.fillStyle = "#6f777f";
-    g.fillRect(0, h - 0.15, w, 0.15);
-  });
+  );
 }
 
-/* Vernier: 20 divisions spanning 39 mm (least count 0.05 mm), zero at ZERO_X when closed. */
+/* =========================================================
+   VERNIER SCALE
+========================================================= */
+
 function buildVernier() {
-  const w = (VERN.x1 - VERN.x0) * MM, h = (VERN.y1 - VERN.y0) * MM, z = (ZERO_X - VERN.x0) * MM, pitch = 39 / 20;
-  const mat = drawTexture(w, h, Math.min(38, 2048 / w), g => {
-    steel(g, w, h, "#e9ecef", "#d9dde1", "#c3c9cf");
-    g.fillStyle = "#0b0d0f";
-    g.textAlign = "center";
-    g.font = `600 1.9px ${FONT}`;
-    for (let i = 0; i <= 20; i++) {
-      const even = i % 2 === 0, tw = i % 10 === 0 ? 0.16 : 0.1;
-      g.fillRect(z + i * pitch - tw / 2, 0, tw, even ? 2.6 : 1.6);
-      if (even) g.fillText(String(i / 2), z + i * pitch, 4.6);
+  const width =
+    (VERN.x1 - VERN.x0) * MM;
+
+  const height =
+    (VERN.y1 - VERN.y0) * MM;
+
+  const zero =
+    (ZERO_X - VERN.x0) * MM;
+
+  const pitch = 39 / 20;
+
+  const material = drawTexture(
+    width,
+    height,
+    Math.min(38, 2048 / width),
+    g => {
+      steelGradient(g, width, height);
+
+      g.fillStyle = "#15191e";
+      g.textAlign = "center";
+
+      g.font = `600 1.9px ${FONT}`;
+
+      for (let i = 0; i <= 20; i++) {
+        const even = i % 2 === 0;
+
+        const tickWidth =
+          i % 10 === 0 ? 0.16 : 0.1;
+
+        g.fillRect(
+          zero + i * pitch - tickWidth / 2,
+          0,
+          tickWidth,
+          even ? 2.6 : 1.6
+        );
+
+        if (even) {
+          g.fillText(
+            String(i / 2),
+            zero + i * pitch,
+            4.6
+          );
+        }
+      }
+
+      g.textAlign = "left";
+
+      g.fillText(
+        "0.05 mm",
+        zero + 39 + 3.2,
+        4.6
+      );
     }
-    g.textAlign = "left";
-    g.fillText("0.05 mm", z + 39 + 3.2, 4.6);
-  });
-  const m = new THREE.Mesh(new THREE.PlaneGeometry(VERN.x1 - VERN.x0, VERN.y1 - VERN.y0), mat);
-  m.material.polygonOffset = true;
-  m.material.polygonOffsetFactor = -2;
-  m.position.set((VERN.x0 + VERN.x1) / 2, (VERN.y0 + VERN.y1) / 2, VERN.z);
-  return m;
+  );
+
+  const plane = new THREE.Mesh(
+    new THREE.PlaneGeometry(
+      VERN.x1 - VERN.x0,
+      VERN.y1 - VERN.y0
+    ),
+    material
+  );
+
+  plane.material.polygonOffset = true;
+  plane.material.polygonOffsetFactor = -2;
+  plane.material.polygonOffsetUnits = -2;
+
+  plane.position.set(
+    (VERN.x0 + VERN.x1) / 2,
+    (VERN.y0 + VERN.y1) / 2,
+    VERN.z
+  );
+
+  return plane;
 }
 
-/* ===== Load the caliper ===== */
-let rig, slider, ready = false, W = 6, H = 2.5;
+/* =========================================================
+   LOAD CALIPER MODEL
+========================================================= */
 
-new GLTFLoader().load(MODEL, gltf => {
-  try { setup(gltf.scene); } catch (e) { console.error(e); say("Setup problem: " + e.message); }
-}, undefined, e => { console.error(e); say("Model failed to load. Check the file name verniercaliper.glb."); });
+new GLTFLoader().load(
+  MODEL,
+
+  gltf => {
+    try {
+      setup(gltf.scene);
+    } catch (error) {
+      console.error(error);
+
+      say("Setup problem: " + error.message);
+    }
+  },
+
+  undefined,
+
+  error => {
+    console.error(error);
+
+    say(
+      "Model failed to load. Check that verniercaliper.glb " +
+      "is in the same folder as script.js."
+    );
+  }
+);
 
 function setup(model) {
   rig = new THREE.Group();
+
   rig.add(model);
   scene.add(rig);
+
   rig.updateMatrixWorld(true);
 
-  const parts = [];
-  model.traverse(o => {
-    const n = o.name.toLowerCase();
-    if (HIDE.includes(n)) o.visible = false;
-    if (MOVING.includes(n)) parts.push(o);
-    if (o.isMesh) Object.assign(o.material, { envMap: env, envMapIntensity: 0.9, metalness: 0.4, roughness: 0.32 });
+  const movingParts = [];
+
+  model.traverse(mesh => {
+    const name = mesh.name.toLowerCase();
+
+    if (HIDE.includes(name)) {
+      mesh.visible = false;
+    }
+
+    if (MOVING.includes(name)) {
+      movingParts.push(mesh);
+    }
+
+    if (!mesh.isMesh) return;
+
+    mesh.frustumCulled = false;
+
+    const originalMaterials = Array.isArray(mesh.material)
+      ? mesh.material
+      : [mesh.material];
+
+    const improvedMaterials = originalMaterials.map(
+      original => {
+        if (!original) {
+          return polishedSteel.clone();
+        }
+
+        const material = original.clone();
+
+        material.metalness = 1.0;
+
+        /*
+        Keep the original material colour and texture.
+        This preserves dark markings and existing details.
+        */
+
+        if ("roughness" in material) {
+          material.roughness = Math.min(
+            material.roughness ?? 0.4,
+            0.24
+          );
+        }
+
+        if ("envMapIntensity" in material) {
+          material.envMapIntensity = 1.8;
+        }
+
+        if ("clearcoat" in material) {
+          material.clearcoat = 0.8;
+          material.clearcoatRoughness = 0.12;
+        }
+
+        return material;
+      }
+    );
+
+    mesh.material = Array.isArray(mesh.material)
+      ? improvedMaterials
+      : improvedMaterials[0];
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
   });
-  if (parts.length < MOVING.length) throw new Error("moving jaw parts not found in the model");
+
+  if (movingParts.length < MOVING.length) {
+    throw new Error(
+      "The expected moving jaw parts were not found. " +
+      "Check the model's object names."
+    );
+  }
+
   const ruler = model.getObjectByName("Object_4");
-  if (ruler) buildRuler(ruler);
+
+  if (ruler) {
+    buildRuler(ruler);
+  } else {
+    console.warn(
+      "Object_4 was not found. The original main scale is retained."
+    );
+  }
 
   slider = new THREE.Group();
+
   rig.add(slider);
-  parts.forEach(o => slider.attach(o));
+
+  movingParts.forEach(part => {
+    slider.attach(part);
+  });
 
   const fit = new THREE.Box3();
-  rig.traverse(o => {
-    if (!o.isMesh) return;
-    for (let p = o; p; p = p.parent) if (!p.visible) return;
-    fit.union(new THREE.Box3().setFromObject(o));
+
+  rig.updateMatrixWorld(true);
+
+  rig.traverse(mesh => {
+    if (!mesh.isMesh || !mesh.visible) return;
+
+    for (
+      let parent = mesh.parent;
+      parent;
+      parent = parent.parent
+    ) {
+      if (!parent.visible) return;
+    }
+
+    fit.union(
+      new THREE.Box3().setFromObject(mesh)
+    );
   });
+
+  if (fit.isEmpty()) {
+    throw new Error("The model contains no visible geometry.");
+  }
+
   const size = fit.getSize(new THREE.Vector3());
-  W = size.x; H = size.y;
-  rig.position.copy(fit.getCenter(new THREE.Vector3())).negate();
+
+  W = size.x;
+  H = size.y;
+
+  rig.position
+    .copy(fit.getCenter(new THREE.Vector3()))
+    .negate();
+
   slider.add(buildVernier());
+
   rig.updateMatrixWorld(true);
 
   ready = true;
+
   viewFull(true);
-  say("Caliper ready. Zoom in on the jaws, or add an object to measure.");
+
+  say(
+    "Caliper ready. Zoom in on the jaws or select an object to measure."
+  );
 }
 
-/* ===== Camera ===== */
-const dist = span => span / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+/* =========================================================
+   CAMERA AND VIEW HELPERS
+========================================================= */
 
-function go(pos, tgt, instant) {
-  if (instant) { camera.position.copy(pos); controls.target.copy(tgt); controls.update(); fly = null; }
-  else fly = { t0: performance.now(), p0: camera.position.clone(), q0: controls.target.clone(), p1: pos, q1: tgt };
+function distanceForSpan(span) {
+  return span / (
+    2 * Math.tan(
+      THREE.MathUtils.degToRad(camera.fov / 2)
+    )
+  );
 }
-function viewFull(instant) {
-  go(new THREE.Vector3(0, 0, dist(Math.max(W / camera.aspect, H) * 1.04) + 1), new THREE.Vector3(), instant);
+
+function go(position, target, instant = false) {
+  if (instant) {
+    camera.position.copy(position);
+
+    controls.target.copy(target);
+
+    controls.update();
+
+    fly = null;
+
+    return;
+  }
+
+  fly = {
+    t0: performance.now(),
+    p0: camera.position.clone(),
+    q0: controls.target.clone(),
+    p1: position.clone(),
+    q1: target.clone()
+  };
 }
+
+function viewFull(instant = false) {
+  if (!ready) return;
+
+  const span = Math.max(
+    W / Math.max(camera.aspect, 0.01),
+    H
+  ) * 1.2;
+
+  const distance = distanceForSpan(span) + 1;
+
+  const target = new THREE.Vector3(0, 0, 0);
+
+  const position = new THREE.Vector3(
+    0,
+    0,
+    distance
+  );
+
+  go(position, target, instant);
+}
+
 function viewJaws() {
   if (!ready) return;
+
   const gap = slider.position.x;
-  const c = rig.localToWorld(new THREE.Vector3(FACE_X + gap / 2, -0.55, FACE_Z));
-  go(new THREE.Vector3(c.x, c.y, c.z + dist(Math.max(2.2, (gap + 1.4) / camera.aspect))), c);
+
+  const center = rig.localToWorld(
+    new THREE.Vector3(
+      FACE_X + gap / 2,
+      -0.55,
+      FACE_Z
+    )
+  );
+
+  const distance = distanceForSpan(
+    Math.max(
+      2.2,
+      (gap + 1.4) / Math.max(camera.aspect, 0.01)
+    )
+  );
+
+  const position = new THREE.Vector3(
+    center.x,
+    center.y,
+    center.z + distance
+  );
+
+  go(position, center);
 }
-$("fitButton").onclick = () => ready && viewFull();
+
+$("fitButton").onclick = () => {
+  if (ready) viewFull();
+};
+
 $("jawsButton").onclick = viewJaws;
 
-/* ===== Jaw slider (only while no object is held) ===== */
-$("jawSlider").addEventListener("input", () => {
-  const val = Number($("jawSlider").value);
-  $("jawValue").textContent = val + "%";
-  if (ready && !obj) slider.position.x = (val / 100) * TRAVEL;
+/* =========================================================
+   TOUCH PAN
+   Finger movement follows the direction of the finger.
+========================================================= */
+
+const element = renderer.domElement;
+
+const fingers = new Map();
+
+element.addEventListener("pointerdown", event => {
+  if (event.pointerType !== "touch") return;
+
+  fingers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY
+  });
 });
 
-/* ===== Objects: the jaws always close exactly on the first size ===== */
+element.addEventListener("pointermove", event => {
+  const finger = fingers.get(event.pointerId);
+
+  if (!finger || fingers.size !== 1) return;
+
+  const dx = event.clientX - finger.x;
+  const dy = event.clientY - finger.y;
+
+  finger.x = event.clientX;
+  finger.y = event.clientY;
+
+  const distance = camera.position.distanceTo(
+    controls.target
+  );
+
+  const scale =
+    (2 * distance *
+      Math.tan(
+        THREE.MathUtils.degToRad(camera.fov / 2)
+      )) /
+    Math.max(viewer.clientHeight, 1);
+
+  camera.updateMatrixWorld();
+
+  const right = new THREE.Vector3()
+    .setFromMatrixColumn(camera.matrixWorld, 0);
+
+  const up = new THREE.Vector3()
+    .setFromMatrixColumn(camera.matrixWorld, 1);
+
+  /*
+  Pan follows the finger direction.
+
+  Positive dx moves the view right.
+  Negative dx moves the view left.
+  Positive dy moves the view down.
+  Negative dy moves the view up.
+  */
+
+  const movement = right
+    .multiplyScalar(dx * scale)
+    .add(
+      up.multiplyScalar(-dy * scale)
+    );
+
+  camera.position.add(movement);
+
+  controls.target.add(movement);
+
+  controls.update();
+
+  moved = true;
+  fly = null;
+});
+
+["pointerup", "pointercancel", "pointerleave"].forEach(
+  eventName => {
+    element.addEventListener(eventName, event => {
+      fingers.delete(event.pointerId);
+    });
+  }
+);
+
+/* =========================================================
+   JAW SLIDER
+========================================================= */
+
+$("jawSlider").addEventListener("input", () => {
+  const value = Number($("jawSlider").value);
+
+  $("jawValue").textContent = value + "%";
+
+  if (ready && !obj) {
+    slider.position.x =
+      (value / 100) * TRAVEL;
+  }
+});
+
+/* =========================================================
+   MEASUREMENT OBJECTS
+========================================================= */
+
 const SHAPES = {
-  sphere:   { f: ["Diameter"],                  max: 60,  geo: a => new THREE.SphereGeometry(a / 2, 96, 64),               h: a => a },
-  cube:     { f: ["Side"],                      max: 100, geo: a => new THREE.BoxGeometry(a, a, a),                         h: a => a },
-  cylinder: { f: ["Diameter", "Height"],        max: 100, geo: (a, b) => new THREE.CylinderGeometry(a / 2, a / 2, b, 96),   h: (a, b) => b },
-  cuboid:   { f: ["Length", "Width", "Height"], max: 100, geo: (a, b, c) => new THREE.BoxGeometry(a, c, b),                 h: (a, b, c) => c },
-  cone:     { f: ["Base diameter", "Height"],   max: 100, geo: (a, b) => new THREE.ConeGeometry(a / 2, b, 96),              h: (a, b) => b }
+  sphere: {
+    fields: ["Diameter"],
+    max: 60,
+
+    geometry: a =>
+      new THREE.SphereGeometry(
+        a / 2,
+        96,
+        64
+      ),
+
+    height: a => a
+  },
+
+  cube: {
+    fields: ["Side"],
+    max: 100,
+
+    geometry: a =>
+      new THREE.BoxGeometry(a, a, a),
+
+    height: a => a
+  },
+
+  cylinder: {
+    fields: ["Diameter", "Height"],
+    max: 100,
+
+    geometry: (a, b) =>
+      new THREE.CylinderGeometry(
+        a / 2,
+        a / 2,
+        b,
+        96,
+        1
+      ),
+
+    height: (a, b) => b
+  },
+
+  cuboid: {
+    fields: ["Length", "Width", "Height"],
+    max: 100,
+
+    /*
+    Length = X
+    Width  = Z
+    Height = Y
+
+    All three dimensions can be different.
+    */
+
+    geometry: (a, b, c) =>
+      new THREE.BoxGeometry(a, c, b),
+
+    height: (a, b, c) => c
+  },
+
+  cone: {
+    fields: ["Base diameter", "Height"],
+    max: 100,
+
+    geometry: (a, b) =>
+      new THREE.ConeGeometry(
+        a / 2,
+        b,
+        96,
+        1
+      ),
+
+    height: (a, b) => b
+  }
 };
-let shape = null, obj = null;
+
+/* =========================================================
+   READ DIMENSIONS
+========================================================= */
 
 function readDims() {
-  const sh = SHAPES[shape];
-  const d = sh.f.map((_, i) => parseFloat($("dim" + "ABC"[i]).value));
-  const limit = Math.min(sh.max, Math.floor(TRAVEL * MM));
-  if (d.some(x => !(x >= 1 && x <= sh.max))) return say(`Enter sizes between 1 and ${sh.max} mm.`);
-  if (d[0] > limit) return say(`The jaws open to ${limit} mm at most. Reduce the first size.`);
-  return d;
+  const definition = SHAPES[shape];
+
+  if (!definition) return null;
+
+  const dimensions = definition.fields.map(
+    (_, index) =>
+      Number($("dim" + "ABC"[index]).value)
+  );
+
+  const maximumOpening = Math.floor(TRAVEL * MM);
+
+  if (
+    dimensions.some(
+      value =>
+        !Number.isFinite(value) ||
+        value < 1 ||
+        value > definition.max
+    )
+  ) {
+    say(
+      `Enter dimensions between 1 and ${definition.max} mm.`
+    );
+
+    return null;
+  }
+
+  if (dimensions[0] > maximumOpening) {
+    say(
+      `The available jaw opening is approximately ${maximumOpening} mm.`
+    );
+
+    return null;
+  }
+
+  return dimensions;
 }
+
+/* =========================================================
+   PLACE OBJECT BETWEEN JAWS
+========================================================= */
 
 function place() {
-  if (!obj) return;
-  const d = readDims();
-  if (!d) return;
-  const sh = SHAPES[shape], v = d.map(x => x / MM);
+  if (!obj || !shape || !ready) return;
+
+  const dimensions = readDims();
+
+  if (!dimensions) return;
+
+  const definition = SHAPES[shape];
+
+  const values = dimensions.map(
+    value => value / MM
+  );
+
   obj.geometry.dispose();
-  obj.geometry = sh.geo(...v);
-  slider.position.x = v[0];                              // jaw faces exactly one object-size apart
-  const h = sh.h(...v);
-  let y = (shape === "cone" ? ROOT_Y - 0.05 : ROOT_Y) - h / 2;   // cone hangs point-down from its base
-  if (shape === "sphere") y = Math.max(y, -1.05);        // keep the widest part inside the jaw faces
-  obj.rotation.z = shape === "cone" ? Math.PI : 0;
-  obj.position.set(FACE_X + v[0] / 2, y, FACE_Z);        // touching the fixed jaw face
-  $("measurementAnswer").textContent = sh.f.map((n, i) => `${n}: ${d[i]} mm`).join(",  ");
-  say(`Object is held between the jaws. Measured size: ${d[0]} mm.`);
+
+  obj.geometry = definition.geometry(...values);
+
+  obj.geometry.computeVertexNormals();
+
+  /*
+  The slider moves so the jaw gap equals the first dimension.
+  */
+
+  slider.position.x = values[0];
+
+  const height = definition.height(...values);
+
+  let y = ROOT_Y - height / 2;
+
+  if (shape !== "cone") {
+    y = ROOT_Y - height / 2;
+  } else {
+    y = ROOT_Y - 0.05 - height / 2;
+  }
+
+  if (shape === "sphere") {
+    y = Math.max(y, -1.05);
+  }
+
+  obj.rotation.set(
+    0,
+    0,
+    shape === "cone" ? Math.PI : 0
+  );
+
+  obj.position.set(
+    FACE_X + values[0] / 2,
+    y,
+    FACE_Z
+  );
+
+  $("measurementAnswer").textContent =
+    definition.fields
+      .map(
+        (name, index) =>
+          `${name}: ${dimensions[index]} mm`
+      )
+      .join(", ");
+
+  say(
+    `Object selected. Entered dimensions: ${dimensions.join(" × ")} mm.`
+  );
 }
 
-function selectShape(s) {
-  if (!ready) return say("Wait for the caliper to load.");
-  shape = s;
-  if (!obj) { obj = new THREE.Mesh(new THREE.BufferGeometry(), silver); rig.add(obj); }
-  document.querySelectorAll("[data-shape]").forEach(b => b.classList.toggle("active", b.dataset.shape === s));
-  "ABC".split("").forEach((k, i) => {
-    const on = i < SHAPES[s].f.length;
-    $("field" + k).hidden = !on;
-    if (on) $("label" + k).textContent = SHAPES[s].f[i] + " (mm)";
+/* =========================================================
+   SELECT SHAPE
+========================================================= */
+
+function selectShape(selectedShape) {
+  if (!ready) {
+    say("Wait for the caliper to load.");
+    return;
+  }
+
+  shape = selectedShape;
+
+  if (!obj) {
+    obj = new THREE.Mesh(
+      new THREE.BufferGeometry(),
+      objectMaterials[shape]
+    );
+
+    obj.castShadow = true;
+    obj.receiveShadow = true;
+
+    rig.add(obj);
+  } else {
+    obj.material = objectMaterials[shape];
+  }
+
+  document.querySelectorAll("[data-shape]").forEach(
+    button => {
+      button.classList.toggle(
+        "active",
+        button.dataset.shape === selectedShape
+      );
+    }
+  );
+
+  const fields = SHAPES[selectedShape].fields;
+
+  "ABC".split("").forEach((key, index) => {
+    const enabled = index < fields.length;
+
+    $("field" + key).hidden = !enabled;
+
+    if (enabled) {
+      $("label" + key).textContent =
+        fields[index] + " (mm)";
+    }
   });
+
+  /*
+  Give newly selected objects useful default dimensions.
+  */
+
+  const defaults = {
+    sphere: [20],
+    cube: [20],
+    cylinder: [20, 30],
+    cuboid: [30, 20, 15],
+    cone: [20, 30]
+  };
+
+  defaults[selectedShape].forEach(
+    (value, index) => {
+      $("dim" + "ABC"[index]).value = value;
+    }
+  );
+
   $("objectPanel").hidden = false;
   $("jawControlPanel").hidden = true;
+
   place();
 }
 
+/* =========================================================
+   REMOVE OBJECT
+========================================================= */
+
 function removeObject() {
   if (!obj) return;
+
   rig.remove(obj);
+
   obj.geometry.dispose();
-  obj = shape = null;
-  document.querySelectorAll("[data-shape]").forEach(b => b.classList.remove("active"));
+
+  obj = null;
+  shape = null;
+
+  document.querySelectorAll("[data-shape]").forEach(
+    button => button.classList.remove("active")
+  );
+
   $("objectPanel").hidden = true;
   $("jawControlPanel").hidden = false;
-  slider.position.x = Math.min(TRAVEL, Math.max(0, slider.position.x));
-  const pct = Math.round((slider.position.x / TRAVEL) * 100);
-  $("jawSlider").value = pct;
-  $("jawValue").textContent = pct + "%";
+
+  slider.position.x = Math.min(
+    TRAVEL,
+    Math.max(0, slider.position.x)
+  );
+
+  const percentage = Math.round(
+    (slider.position.x / TRAVEL) * 100
+  );
+
+  $("jawSlider").value = percentage;
+  $("jawValue").textContent = percentage + "%";
+
   say("Object removed. Move the jaws freely.");
 }
 
-document.querySelectorAll("[data-shape]").forEach(b => (b.onclick = () => selectShape(b.dataset.shape)));
-["dimA", "dimB", "dimC"].forEach(id => $(id).addEventListener("input", place));
+document.querySelectorAll("[data-shape]").forEach(
+  button => {
+    button.onclick = () =>
+      selectShape(button.dataset.shape);
+  }
+);
+
+["dimA", "dimB", "dimC"].forEach(id => {
+  $(id).addEventListener("input", place);
+});
+
 $("removeButton").onclick = removeObject;
 
-/* ===== Resize and render ===== */
+/* =========================================================
+   RESIZE
+========================================================= */
+
 new ResizeObserver(() => {
-  const w = viewer.clientWidth, h = viewer.clientHeight;
-  if (!w || !h) return;
-  camera.aspect = w / h;
+  const width = viewer.clientWidth;
+  const height = viewer.clientHeight;
+
+  if (!width || !height) return;
+
+  camera.aspect = width / height;
+
   camera.updateProjectionMatrix();
-  renderer.setSize(w, h, false);
-  if (ready && !moved) viewFull(true);
+
+  renderer.setSize(width, height, false);
+
+  if (ready && !moved) {
+    viewFull(true);
+  }
 }).observe(viewer);
 
-(function animate(now) {
+/* =========================================================
+   RENDER LOOP
+========================================================= */
+
+function animate(now) {
   requestAnimationFrame(animate);
+
   if (fly) {
-    const k = Math.min(1, (now - fly.t0) / 500), e = k * k * (3 - 2 * k);
-    camera.position.lerpVectors(fly.p0, fly.p1, e);
-    controls.target.lerpVectors(fly.q0, fly.q1, e);
-    if (k === 1) fly = null;
+    const progress = Math.min(
+      1,
+      (now - fly.t0) / 500
+    );
+
+    const eased =
+      progress * progress * (3 - 2 * progress);
+
+    camera.position.lerpVectors(
+      fly.p0,
+      fly.p1,
+      eased
+    );
+
+    controls.target.lerpVectors(
+      fly.q0,
+      fly.q1,
+      eased
+    );
+
+    if (progress === 1) {
+      fly = null;
+    }
   }
+
   controls.update();
+
   renderer.render(scene, camera);
-})(performance.now());
+}
+
+animate(performance.now());
