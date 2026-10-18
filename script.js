@@ -63,7 +63,7 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 
 /* Reduced exposure prevents the metal from looking white. */
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 0.85;
 
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -101,8 +101,8 @@ function addLight(color, intensity, x, y, z) {
   return light;
 }
 
-addLight(0xffffff, 3.2, 3, 5, 7);
-addLight(0xdceaff, 2.0, -5, 2, 4);
+addLight(0xffffff, 2.2, 3, 5, 7);
+addLight(0xdceaff, 1.4, -5, 2, 4);
 addLight(0xffffff, 2.7, 1, -3, -5);
 addLight(0xffffff, 1.1, -2, 5, -3);
 
