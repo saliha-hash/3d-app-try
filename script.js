@@ -588,13 +588,16 @@ function setup(model) {
 }
 
 if ("roughness" in material) {
-  material.roughness = THREE.MathUtils.clamp(
-    material.roughness ?? 0.36,
-    0.32,
-    0.48
-  );
+  material.roughness = 0.4;
 }
 
+if ("metalness" in material) {
+  material.metalness = 0.75;
+}
+
+if ("envMapIntensity" in material) {
+  material.envMapIntensity = 0.65;
+}
 if ("envMapIntensity" in material) {
   material.envMapIntensity = 0.8;
 }
@@ -1098,8 +1101,7 @@ if (jawSlider) {
     }
 
     if (ready && !obj) {
-      slider.position.x =
-        (value / 100) * TRAVEL;
+      slider.position.x = values[0];
     }
   });
 }
