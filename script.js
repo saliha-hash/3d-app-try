@@ -131,23 +131,23 @@ pmrem.dispose();
 /* Satin silver steel. */
 
 const silver = new THREE.MeshPhysicalMaterial({
-  color: 0xbfc6ce,
-  metalness: 0.95,
-  roughness: 0.32,
-  clearcoat: 0.35,
-  clearcoatRoughness: 0.24,
-  envMapIntensity: 1.1
+  color: 0x9299a1,
+  metalness: 0.88,
+  roughness: 0.38,
+  clearcoat: 0.18,
+  clearcoatRoughness: 0.32,
+  envMapIntensity: 0.8
 });
 
 /* Polished steel for missing or replacement materials. */
 
 const polishedSteel = new THREE.MeshPhysicalMaterial({
-  color: 0xb9c1ca,
-  metalness: 0.95,
-  roughness: 0.3,
-  clearcoat: 0.45,
-  clearcoatRoughness: 0.2,
-  envMapIntensity: 1.15
+  color: 0x9da5ae,
+  metalness: 0.9,
+  roughness: 0.36,
+  clearcoat: 0.25,
+  clearcoatRoughness: 0.28,
+  envMapIntensity: 0.85
 });
 
 /* Dark steel for darker components. */
@@ -188,9 +188,6 @@ const controls = new OrbitControls(
   renderer.domElement
 );
 
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-
 controls.enableZoom = true;
 controls.zoomToCursor = true;
 controls.screenSpacePanning = true;
@@ -200,7 +197,13 @@ controls.maxDistance = 35;
 
 controls.rotateSpeed = 0.8;
 controls.panSpeed = 1.0;
+
+/* Natural mouse-wheel zoom. */
 controls.zoomSpeed = 0.8;
+
+/* Keep the camera movement predictable. */
+controls.minPolarAngle = 0.05;
+controls.maxPolarAngle = Math.PI - 0.05;
 
 /*
 Mouse:
@@ -580,23 +583,26 @@ function setup(model) {
           material.metalness = 0.9;
         }
 
-        if ("roughness" in material) {
-          material.roughness =
-            THREE.MathUtils.clamp(
-              material.roughness ?? 0.36,
-              0.28,
-              0.45
-            );
-        }
+        if ("metalness" in material) {
+  material.metalness = 0.88;
+}
 
-        if ("envMapIntensity" in material) {
-          material.envMapIntensity = 1.1;
-        }
+if ("roughness" in material) {
+  material.roughness = THREE.MathUtils.clamp(
+    material.roughness ?? 0.36,
+    0.32,
+    0.48
+  );
+}
 
-        if ("clearcoat" in material) {
-          material.clearcoat = 0.3;
-          material.clearcoatRoughness = 0.24;
-        }
+if ("envMapIntensity" in material) {
+  material.envMapIntensity = 0.8;
+}
+
+if ("clearcoat" in material) {
+  material.clearcoat = 0.2;
+  material.clearcoatRoughness = 0.3;
+}
 
         material.needsUpdate = true;
 
@@ -623,15 +629,19 @@ function setup(model) {
   Apply the custom brushed-metal texture to the main scale.
   */
 
-  const ruler = model.getObjectByName("Object_4");
+  /*
+Keep the original main-scale geometry and markings.
+Do not overwrite the scale texture until the model's
+actual scale geometry and UV mapping have been checked.
+*/
 
-  if (ruler) {
-    buildRuler(ruler);
-  } else {
-    console.warn(
-      "Object_4 was not found. The original main scale is retained."
-    );
-  }
+const ruler = model.getObjectByName("Object_4");
+
+if (!ruler) {
+  console.warn(
+    "Object_4 was not found. Using the original model markings."
+  );
+}
 
   /*
   Create the moving slider and preserve the initial world
@@ -857,13 +867,19 @@ function panByPixels(dx, dy) {
   */
 
   const movement = right
-    .multiplyScalar(dx * scale)
-    .add(
-      up.multiplyScalar(-dy * scale)
-    );
+  .multiplyScalar(dx * scale)
+  .add(
+    up.multiplyScalar(-dy * scale)
+  );
 
-  camera.position.add(movement);
-  controls.target.add(movement);
+/* Move the camera opposite to the drag direction. */
+camera.position.sub(movement);
+controls.target.sub(movement);
+
+controls.update();
+
+moved = true;
+fly = null;
 
   controls.update();
 
